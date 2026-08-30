@@ -856,40 +856,64 @@ def main() -> None:
     fig.legend(handles=legend, loc="upper center", ncol=4, frameon=False, bbox_to_anchor=(.54, .99), columnspacing=1)
     save_figure(fig, figures / "conditional_score_shift.pdf")
 
-    # Quality--cost view. Each configuration has one measured/native-policy
-    # reference time; the three operating cutoffs therefore share its x value.
-    fig, ax = plt.subplots(figsize=(4.80, 2.65))
-    fig.subplots_adjust(left=.12, right=.975, top=.69, bottom=.21)
-    policy_markers = {POLICIES[0]: "o", POLICIES[1]: "s", POLICIES[2]: "^"}
-    palette = ("#1f6f9f", "#ce6c1e", "#2e8b57", "#8e5aa9", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22")
-    compact_labels = {"dt": "DT", "xgb300": "XGB", "rf30": "RF-30", "rf300": "RF-300",
-                      "dt_xgb": "DX", "cascade": "CA", "dt_rf30": "DR", "dt_rf30_rf300": "DRR"}
-    for k, color in zip(ORDER, palette):
-        cost = unique(default_cost, model_key=k)
-        values = [unique(policy, model_key=k, policy=p) for p in POLICIES]
-        ys = np.array([v.test_F1_weighted_pct_mean for v in values])
-        ax.plot([cost.reference_seconds] * len(ys), ys, color=color, lw=.8, alpha=.75)
-        for p, value in zip(POLICIES, values):
-            ax.errorbar(cost.reference_seconds, value.test_F1_weighted_pct_mean,
-                        xerr=cost.reference_seconds_sd, yerr=value.test_F1_weighted_pct_sd,
-                        fmt=policy_markers[p], color=color, markersize=4.4,
-                        capsize=1.8, elinewidth=.65, markeredgecolor="white", markeredgewidth=.35)
-    ax.set_xscale("log")
-    ax.set_xlim(.0065, 1.15)
-    ax.set_xlabel("Full-test reference time (s, log scale)")
-    ax.set_ylabel("Mean test F1-W (%)")
-    ax.grid(False)
-    policy_handles = [Line2D([0], [0], marker=policy_markers[p], color="#444444", lw=0,
-                             markerfacecolor="#444444", label=label, markersize=4.5)
-                      for p, label in zip(POLICIES, ("0.5", "Global val-F1", "Oracle prior"))]
-    config_handles = [Line2D([0], [0], marker="o", color=color, markerfacecolor=color, lw=1,
-                             label=compact_labels[k], markersize=4)
-                      for k, color in zip(ORDER, palette)]
-    fig.legend(handles=config_handles, loc="upper center", ncol=8, frameon=False,
-               bbox_to_anchor=(.54, .995), fontsize=6.5, handlelength=.8,
-               handletextpad=.25, columnspacing=.55)
-    fig.legend(handles=policy_handles, loc="upper center", ncol=3, frameon=False,
-               bbox_to_anchor=(.54, .88), fontsize=7.0, columnspacing=1.1)
+    # Compact quality--cost view. A heatmap avoids the large empty regions and
+    # overlapping two-dimensional error bars of the former log-scale scatter.
+    # Each configuration has one measured/native-policy reference time, so time
+    # is shown once rather than repeated for all three cutoff-only decisions.
+    f1_mean = np.array([[unique(policy, model_key=k, policy=p).test_F1_weighted_pct_mean
+                         for p in POLICIES] for k in ORDER])
+    f1_sd = np.array([[unique(policy, model_key=k, policy=p).test_F1_weighted_pct_sd
+                       for p in POLICIES] for k in ORDER])
+    time_mean = np.array([[unique(default_cost, model_key=k).reference_seconds] for k in ORDER])
+    time_sd = np.array([[unique(default_cost, model_key=k).reference_seconds_sd] for k in ORDER])
+    fig, (quality_ax, time_ax) = plt.subplots(
+        1, 2, figsize=(4.80, 2.55), sharey=True,
+        gridspec_kw={"width_ratios": (3.25, 1.15)},
+    )
+    fig.subplots_adjust(left=.335, right=.985, top=.78, bottom=.10, wspace=.07)
+    quality_mesh = quality_ax.imshow(
+        f1_mean, cmap="YlGnBu", vmin=82.5, vmax=91.0,
+        aspect="auto", interpolation="nearest",
+    )
+    time_mesh = time_ax.imshow(
+        time_mean, cmap="cividis", norm=matplotlib.colors.LogNorm(vmin=.008, vmax=1.0),
+        aspect="auto", interpolation="nearest",
+    )
+    quality_ax.set_xticks(range(3), ["0.5", "Global\nval-F1", "Oracle\nprior"])
+    quality_ax.set_yticks(range(len(ORDER)), [PLOT[k] for k in ORDER])
+    quality_ax.set_title("Test F1-W (%)\nmean ± SD", pad=5, fontsize=8.2, fontweight="bold")
+    time_ax.set_xticks([0], ["Reference"])
+    time_ax.set_title("Time (s)\nmean ± SD", pad=5, fontsize=8.2, fontweight="bold")
+    def cell_text_color(mesh, value):
+        red, green, blue, _ = mesh.cmap(mesh.norm(value))
+        luminance = .2126 * red + .7152 * green + .0722 * blue
+        return "white" if luminance < .52 else "#17202a"
+
+    quality_best = f1_mean.max(axis=0)
+    for i in range(len(ORDER)):
+        for j in range(len(POLICIES)):
+            value = f1_mean[i, j]
+            quality_ax.text(
+                j, i, f"{value:.2f}\n±{f1_sd[i, j]:.2f}",
+                ha="center", va="center", fontsize=5.9,
+                color=cell_text_color(quality_mesh, value),
+                fontweight="bold" if np.isclose(value, quality_best[j]) else "normal",
+            )
+        mean, sd = time_mean[i, 0], time_sd[i, 0]
+        decimals = 4 if mean < .1 else 3
+        time_ax.text(
+            0, i, f"{mean:.{decimals}f}\n±{sd:.{decimals}f}",
+            ha="center", va="center", fontsize=5.8,
+            color=cell_text_color(time_mesh, mean),
+            fontweight="bold" if np.isclose(mean, time_mean.min()) else "normal",
+        )
+    for plot_ax in (quality_ax, time_ax):
+        plot_ax.tick_params(length=0, pad=3)
+        plot_ax.grid(False)
+        for spine in plot_ax.spines.values():
+            spine.set_visible(False)
+    quality_ax.tick_params(axis="y", labelsize=7.1)
+    time_ax.tick_params(axis="y", labelleft=False)
     save_figure(fig, figures / "quality_cost_policies.pdf")
 
     fig, axes = plt.subplots(1, 2, figsize=(4.80, 2.50), sharey=True)
