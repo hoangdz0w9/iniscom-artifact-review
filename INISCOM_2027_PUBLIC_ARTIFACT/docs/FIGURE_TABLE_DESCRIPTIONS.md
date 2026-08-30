@@ -24,7 +24,7 @@ Two bar panels keep input batches 32 and 1,000 separate. Categories are actual S
 
 ## Quality-cost policies (`fig:qualitycost`)
 
-A log-scale scatter plot shows all 24 combinations of eight configurations and three cutoff policies. The horizontal axis is native-policy reference time per flow; the vertical axis is mean test F1-W. Marker shape distinguishes fixed 0.5, global validation-F1 cutoff and oracle-prior cutoff, while color identifies the configuration. Vertical bars are the ten-seed sample SD of F1-W. Timing is reused within each configuration and therefore does not claim policy-specific latency measurements. The plot supports a descriptive, uncertainty-unadjusted frontier rather than a universal utility ranking.
+A compact two-part heatmap compares eight configurations. The left matrix contains three cutoff-policy columns---fixed 0.5, global validation-F1 and oracle prior---and reports mean plus or minus the ten-seed sample SD of test F1-W in every cell. Bold text marks the largest mean in each policy column. The right matrix reports the mean plus or minus SD native-policy reference time once per configuration; its color is logarithmically normalized and bold marks the fastest configuration. Exact cell text remains readable without color. Timing is reused across a configuration's cutoff-only decisions and therefore does not claim policy-specific latency measurements. The figure is a descriptive quality--cost summary rather than a universal utility ranking.
 
 ## Information roles (`tab:roles`)
 
