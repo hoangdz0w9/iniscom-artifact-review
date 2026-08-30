@@ -1,0 +1,8 @@
+family,family_size,comparison,p_raw,p_holm,significant_alpha_0_05
+retained_four_contrast_family,4,rf30 - cascade,0.27853572047756936,0.27853572047756936,False
+retained_four_contrast_family,4,dt_rf30 - cascade,0.046138337849512885,0.13841501354853866,False
+retained_four_contrast_family,4,dt_rf30_rf300 - cascade,0.0019243083077850303,0.007697233231140121,True
+retained_four_contrast_family,4,cascade - dt_xgb,0.049343546570213136,0.13841501354853866,False
+POSTHOC_three_exploratory_family,3,dt_rf30 - cascade,0.046138337849512885,0.09227667569902577,False
+POSTHOC_three_exploratory_family,3,dt_rf30_rf300 - cascade,0.0019243083077850303,0.005772924923355091,True
+POSTHOC_three_exploratory_family,3,cascade - dt_xgb,0.049343546570213136,0.09227667569902577,False

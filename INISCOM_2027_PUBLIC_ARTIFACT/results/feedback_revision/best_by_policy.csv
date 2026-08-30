@@ -1,0 +1,4 @@
+policy,standalone,standalone_F1_mean,route,route_F1_mean
+global_default_0p5,rf300,90.356114061191562,dt_rf30_rf300,89.022767002616163
+global_validation_f1,xgb300,87.414574390264491,dt_xgb,87.409258348808308
+global_oracle_prior_weighted_validation_f1,rf300,90.650454018067208,cascade,89.509618467883598

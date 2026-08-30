@@ -1,0 +1,16 @@
+# Actual analysis/benchmark environment used for this revision, not the unknown
+# original timing environment. Tested on Python 3.12.10, Windows 11.
+# No script installs packages automatically. Use a separate venv if needed.
+# Optional PDF/release verification dependency, deliberately NOT installed by
+# this analysis-only requirements file: pypdf==6.10.0 (bundled version verified).
+# See README_VI.md for a separate PDF-QA environment; analyses/benchmarks do not
+# require pypdf.
+numpy==2.4.2
+pandas==3.0.2
+scipy==1.17.1
+scikit-learn==1.8.0
+xgboost==3.2.0
+matplotlib==3.10.9
+joblib==1.5.3
+threadpoolctl==3.6.0
+psutil==7.2.2

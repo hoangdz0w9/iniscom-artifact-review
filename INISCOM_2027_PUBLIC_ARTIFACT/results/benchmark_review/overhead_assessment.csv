@@ -1,0 +1,13 @@
+kind,model_key,n_seeds,heldout_batch_sizes,mean_absolute_percentage_error,max_absolute_percentage_error,threshold_mape_percent,threshold_max_error_percent,status,interpretation
+component,dt,5,32;1000,79.62962003241978,152.97526962012344,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law
+component,xgb300,5,32;1000,39.527248460245502,72.849256718648164,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law
+component,rf30,5,32;1000,39.839724894782357,70.467207175986701,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law
+component,rf300,5,32;1000,33.898979968604628,70.775650271340652,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law
+whole_policy,dt,5,32;1000,70.922173802806569,127.16396309698703,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law
+whole_policy,rf300,5,32;1000,32.552608390059923,69.548895570372608,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law
+whole_policy,dt_rf30,5,32;1000,58.708772067112818,74.89776044843228,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law
+whole_policy,dt_xgb,5,32;1000,39.721748790574686,69.599648072530329,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law
+whole_policy,rf30,5,32;1000,34.216454868595171,65.652159738067752,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law
+whole_policy,xgb300,5,32;1000,38.477819187028231,74.269926171471255,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law
+whole_policy,dt_rf30_rf300,5,32;1000,62.038231033987088,74.114439671315495,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law
+whole_policy,cascade,5,32;1000,24.803413351190983,52.618571600829227,20,50,model_inadequate_or_insufficient,descriptive predeclared-size check only; no universal or causal timing law

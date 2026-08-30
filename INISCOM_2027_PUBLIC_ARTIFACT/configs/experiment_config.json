@@ -1,0 +1,18 @@
+{
+  "artifact_status": "anonymous_review_draft",
+  "paper_title": "Operating Policies Shape Confidence-Routed Intrusion Detection",
+  "primary_dataset": "UNSW-NB15 official training/test split",
+  "seeds": [21, 42, 84, 168, 336, 348184071, 362797685, 883000906, 1365468824, 1486213216],
+  "models": {
+    "DT": {"max_depth": 8, "min_samples_leaf": 50, "min_samples_split": 4},
+    "XGB-300": {"n_estimators": 300, "max_depth": 6, "learning_rate": 0.1, "subsample": 0.8, "colsample_bytree": 0.8, "tree_method": "hist"},
+    "RF-30": {"n_estimators": 30, "max_depth": 10, "min_samples_leaf": 10, "max_features": "sqrt", "class_weight": "balanced_subsample"},
+    "RF-300": {"n_estimators": 300, "max_depth": 10, "min_samples_leaf": 10, "max_features": "sqrt", "class_weight": "balanced_subsample"}
+  },
+  "global_cutoff_policies": ["global_default_0p5", "global_validation_f1", "global_oracle_prior_weighted_validation_f1"],
+  "prediction_rule": "attack iff score >= cutoff",
+  "row_bootstrap_replicates_per_subset": 10000,
+  "same_pool_control_partition": {"fit": 0.64, "validation": 0.16, "heldout_test": 0.20},
+  "same_pool_control_model": "RF-30",
+  "public_artifact_excludes": ["provider datasets", "raw packet captures", "score NPZ files", "fitted model binaries", "repository history", "local provenance paths"]
+}
