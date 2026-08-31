@@ -402,8 +402,10 @@ def build_evaluation_sensitivity(root, tables, textdir, paired, policy_summary):
     default_boot_width = round(boot.bootstrap_ci95_high_pp, 3) - round(boot.bootstrap_ci95_low_pp, 3)
     rf_val = unique(policy_summary, model_key="rf30", policy=POLICIES[1])
     rf_default = unique(policy_summary, model_key="rf30", policy=POLICIES[0])
+    contrast_swing = boot.mean_difference_pp - native_boot.mean_difference_pp
+    swing_ratio = contrast_swing / abs(native_boot.mean_difference_pp)
     write(textdir / "bootstrap_interpretation.tex",
-          rf"The native row-bootstrap interval conditionally favors Cascade-A and is {number(native_seed_width/native_boot_width, 1)} times narrower than the seed-$t$ interval ({number(native_boot_width)} versus {number(native_seed_width)} points; Table~\ref{{tab:bootstrapfull}}). At 0.5 their widths are similar ({number(default_seed_width)} versus {number(default_boot_width)}) and both exclude zero. Together with RF-30's F1-W SD reduction from {number(rf_val.test_F1_weighted_pct_sd)} at validation-selected cutoffs to {number(rf_default.test_F1_weighted_pct_sd)} at 0.5, this indicates that cutoff selection is a major contributor to seed-level variability in this comparison. The estimands remain different; neither covers new sessions or deployments.")
+          rf"Moving only RF-30's cutoff changes the mean RF-30-minus-Cascade-A contrast from {number(native_boot.mean_difference_pp)} to {number(boot.mean_difference_pp)} points, a {number(contrast_swing)}-point swing---{number(swing_ratio, 1)} times the magnitude of the native contrast. This directly quantifies operating-policy sensitivity, not an isolated architecture effect. The native row-bootstrap interval conditionally favors Cascade-A for ten fixed fits under IID resampling of empirical test flows; it does not assert the same sign across retraining seeds, sessions or deployments. Conversely, the seed-$t$ interval varies pipeline seed/validation-split randomness on fixed datasets, not a new training population. Its native width is {number(native_seed_width/native_boot_width, 1)} times the row-bootstrap width ({number(native_seed_width)} versus {number(native_boot_width)} points; Table~\ref{{tab:bootstrapfull}}). RF-30's F1-W SD falls from {number(rf_val.test_F1_weighted_pct_sd)} at validation-selected cutoffs to {number(rf_default.test_F1_weighted_pct_sd)} at 0.5, consistent with cutoff selection contributing substantially to seed-level variability in this comparison.")
     gain = unique(bootstrap, contrast="RF30_default_minus_Cascade_native", subset="feature_unique")
     ca = unique(summary, model_key="cascade", policy=POLICIES[0])
     full_normal = int((mask.label == 0).sum())
@@ -871,12 +873,25 @@ def main() -> None:
         gridspec_kw={"width_ratios": (3.25, 1.15)},
     )
     fig.subplots_adjust(left=.335, right=.985, top=.78, bottom=.10, wspace=.07)
-    quality_mesh = quality_ax.imshow(
-        f1_mean, cmap="YlGnBu", vmin=82.5, vmax=91.0,
+    # Keep the palettes light and cell text dark. Some anonymous-review PDF
+    # previews omit embedded raster fills; dark text preserves the numerical
+    # comparison even when the heatmap color layer is unavailable.
+    quality_colors = plt.get_cmap("YlGnBu")(np.linspace(.05, .78, 256))
+    time_colors = plt.get_cmap("cividis")(np.linspace(.05, .90, 256))
+    quality_colors[:, :3] = .48 * quality_colors[:, :3] + .52
+    time_colors[:, :3] = .42 * time_colors[:, :3] + .58
+    quality_cmap = matplotlib.colors.LinearSegmentedColormap.from_list(
+        "YlGnBu_light", quality_colors,
+    )
+    time_cmap = matplotlib.colors.LinearSegmentedColormap.from_list(
+        "cividis_light", time_colors,
+    )
+    quality_ax.imshow(
+        f1_mean, cmap=quality_cmap, vmin=82.5, vmax=91.0,
         aspect="auto", interpolation="nearest",
     )
-    time_mesh = time_ax.imshow(
-        time_mean, cmap="cividis", norm=matplotlib.colors.LogNorm(vmin=.008, vmax=1.0),
+    time_ax.imshow(
+        time_mean, cmap=time_cmap, norm=matplotlib.colors.LogNorm(vmin=.008, vmax=1.0),
         aspect="auto", interpolation="nearest",
     )
     quality_ax.set_xticks(range(3), ["0.5", "Global\nval-F1", "Oracle\nprior"])
@@ -884,11 +899,6 @@ def main() -> None:
     quality_ax.set_title("Test F1-W (%)\nmean ± SD", pad=5, fontsize=8.2, fontweight="bold")
     time_ax.set_xticks([0], ["Reference"])
     time_ax.set_title("Time (s)\nmean ± SD", pad=5, fontsize=8.2, fontweight="bold")
-    def cell_text_color(mesh, value):
-        red, green, blue, _ = mesh.cmap(mesh.norm(value))
-        luminance = .2126 * red + .7152 * green + .0722 * blue
-        return "white" if luminance < .52 else "#17202a"
-
     quality_best = f1_mean.max(axis=0)
     for i in range(len(ORDER)):
         for j in range(len(POLICIES)):
@@ -896,7 +906,7 @@ def main() -> None:
             quality_ax.text(
                 j, i, f"{value:.2f}\n±{f1_sd[i, j]:.2f}",
                 ha="center", va="center", fontsize=5.9,
-                color=cell_text_color(quality_mesh, value),
+                color="#111820",
                 fontweight="bold" if np.isclose(value, quality_best[j]) else "normal",
             )
         mean, sd = time_mean[i, 0], time_sd[i, 0]
@@ -904,7 +914,7 @@ def main() -> None:
         time_ax.text(
             0, i, f"{mean:.{decimals}f}\n±{sd:.{decimals}f}",
             ha="center", va="center", fontsize=5.8,
-            color=cell_text_color(time_mesh, mean),
+            color="#111820",
             fontweight="bold" if np.isclose(mean, time_mean.min()) else "normal",
         )
     for plot_ax in (quality_ax, time_ax):
