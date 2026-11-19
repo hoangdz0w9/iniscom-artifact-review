@@ -24,11 +24,19 @@ Two bar panels keep input batches 32 and 1,000 separate. Categories are actual S
 
 ## Quality-cost policies (`fig:qualitycost`)
 
-A compact two-part heatmap compares eight configurations. The left matrix contains three cutoff-policy columns---fixed 0.5, global validation-F1 and oracle prior---and reports mean plus or minus the ten-seed sample SD of test F1-W in every cell. Bold text marks the largest mean in each policy column. The right matrix reports the mean plus or minus SD native-policy reference time once per configuration; its color is logarithmically normalized and bold marks the fastest configuration. Exact cell text remains readable without color. Timing is reused across a configuration's cutoff-only decisions and therefore does not claim policy-specific latency measurements. The figure is a descriptive quality--cost summary rather than a universal utility ranking.
+A compact two-part heatmap compares eight configurations. The left matrix has three cutoff-policy columns (fixed 0.5, global validation-F1 and oracle prior); each cell reads "mean ± SD" of ten-seed test F1-W on one line. Bold marks the largest mean in each policy column. The right matrix gives the native-policy reference time once per configuration as mean and SD in seconds, with logarithmic color normalization; bold marks the fastest configuration. Cell text color is chosen per cell for contrast with its fill, and every value is printed, so the figure reads without color. Timing is reused across a configuration's cutoff-only decisions and makes no claim of policy-specific latency.
+
+## Study design and structural asymmetry (`fig:schematic`)
+
+Panel (a) is a left-to-right flow diagram: the official UNSW-NB15 split (ten seeds; 140,272 fitting, 35,069 validation and 82,332 fixed test rows) feeds four tree components, which form eight configurations (four standalone, four routes), each evaluated under three global cutoff policies (fixed 0.5, validation F1-W, oracle prior) and reported as F1-W, FAR, recall, AP, error counts and time. Five dashed boxes below mark diagnostics: class-weight ablation, same-pool control, score-shift and overlap audit, ranking and categories, and batch-size and thread regimes; a dagger marks those that are post hoc or use test-label information. Panel (b) shows three horizontal attack-score bars from 0 to 1. For standalone RF-30, validation tunes a cutoff at about 0.43; the hatched band between 0.43 and 0.5 flips from Attack to Normal when a global 0.5 cutoff is imposed. For a route, a nonterminal stage has gates at tau and 1 minus tau with a forwarding region between them, and the terminal stage splits at 0.5; every route decision therefore equals the resolving component's score thresholded at 0.5, so a global 0.5 cutoff changes nothing.
+
+## Related work (`tab:related`)
+
+Five rows (evaluation design; conditional computation; thresholds and calibration; prior shift; data-set audits) each give the cited works, their strength, their limitation for the question studied here and what the paper adds.
 
 ## Information roles (`tab:roles`)
 
-Columns identify the analysis, information used for selection, and interpretation. Archived primary, default, oracle-prior, constrained-transfer, score/category and timing diagnostics are distinguished. Target prevalence in the oracle policy comes from test labels.
+Ten analyses are listed with the information each uses for selection, the methodological background of its technique with citations, and its role together with any use of test labels. The cited works are background; the specific contrasts, grids and benchmark plan are defined by the study. All analyses except the archived primary comparison are post hoc. The oracle prior, score/category diagnostics and fixed-recall precision summary use test labels and are marked analysis only; the overlap audit uses feature-only keys and needs no labels.
 
 ## Default-cutoff comparison (`tab:defaultcost`)
 
@@ -91,3 +99,7 @@ Twenty-four rows cross eight models with fixed 0.5, global validation-F1 and ora
 ## Separate conditional intervals (`tab:rowbootstrap`)
 
 Four contrasts on full test and four on the feature-unique subset give mean differences and 95% row-bootstrap intervals. Full-test rows also show the original seed-paired t intervals. Every bootstrap draw resamples rows jointly across all ten fitted systems and models; no seed or cutoff is resampled. RF-30@0.5 minus Cascade-A has mean 3.007, seed CI [2.858, 3.157] and row CI [2.861, 3.150]. On unique-only rows its mean is 3.241 and row CI [3.078, 3.404]. For the primary contrast and RF-300-minus-RF-30 default contrast, row CIs exclude zero while seed CIs include zero: different conditioning, not replacement of the primary inference. The bootstrap assumes IID rows and does not capture session dependence or new deployments.
+
+## Post-hoc cost-model diagnosis (`tab:costdiag`)
+
+Two groups of rows (four component score calls; eight whole decision policies) compare the archived absolute-time fit with a refit that minimizes squared relative error on the same calibration sizes. For components, fitted fixed call costs in microseconds are given for both fits beside the measured one-row call: DT 128.6 versus 50.6 (measured 45.6), XGB-300 0.0 versus 364.3 (341.3), RF-30 2254.8 versus 1322.2 (1262.9), RF-300 20684.9 versus 12500.3 (12027.0). Held-out MAPE and maximum error are 24.8–79.6% and 52.6–153.0% for the absolute fit (all 12 fail) and 4.0–11.6% and 7.7–24.5% for the relative refit (all 12 pass the original rule). The refit is post hoc and does not replace the pre-specified negative result.

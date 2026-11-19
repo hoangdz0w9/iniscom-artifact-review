@@ -90,6 +90,32 @@ class AssetTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 assets.verify_analysis_manifest(manifest)
 
+    def test_negative_numbers_outside_math_get_a_true_minus(self):
+        self.assertEqual(assets.tex_minus("A & -0.479 & 3.007 \\\\"), "A & \\ensuremath{-0.479} & 3.007 \\\\")
+        self.assertEqual(assets.tex_minus("gain versus -0.307 on"), "gain versus \\ensuremath{-0.307} on")
+        self.assertEqual(assets.tex_minus("\\newcommand{\\Gap}{-5.148}"), "\\newcommand{\\Gap}{\\ensuremath{-5.148}}")
+
+    def test_minus_normalizer_leaves_math_words_and_ranges_alone(self):
+        for text in ("$[-1.418,0.460]$", "RF-30 and XGB-300", "23.6--30.2\\%", "bins 2-16", "$10^{-15}$",
+                     "RF-30 native $-$ CA native", "already \\ensuremath{-0.479}"):
+            self.assertEqual(assets.tex_minus(text), text)
+
+    def test_minus_normalizer_is_idempotent(self):
+        once = assets.tex_minus("from -0.479 to 3.007, CI $[-1.4,0.5]$, -9.600 at default")
+        self.assertEqual(assets.tex_minus(once), once)
+
+    def test_figure_labels_use_typographic_signs(self):
+        self.assertEqual(assets.signed_label(-72.34), "\u221272.3")
+        self.assertEqual(assets.signed_label(6.8), "+6.8")
+        self.assertEqual(assets.bin_label("2-16"), "2\u201316")
+        self.assertEqual(assets.bin_label("65+"), "\u226565")
+        self.assertEqual(assets.bin_label(0), "0")
+
+    def test_heatmap_text_colour_follows_fill_luminance(self):
+        self.assertEqual(assets.text_color((1, 1, 1, 1)), assets.TEXT_DARK)
+        self.assertEqual(assets.text_color((.4, 0, .1, 1)), assets.TEXT_LIGHT)
+        self.assertEqual(assets.text_color((.98, .95, .7, 1)), assets.TEXT_DARK)
+
 
 if __name__ == "__main__":
     unittest.main()

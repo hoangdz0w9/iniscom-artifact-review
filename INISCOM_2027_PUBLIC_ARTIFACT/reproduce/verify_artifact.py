@@ -41,6 +41,8 @@ def main():
         and p != MANIFEST
         and "__pycache__" not in p.parts
         and ".pytest_cache" not in p.parts
+        # Outputs written by scripts/cost_model_weighting_diagnostic.py; not archive members.
+        and p.relative_to(ROOT).parts[0] != "reproduced"
         and p.suffix.lower() not in {".pyc", ".pyo"}
     }
     if actual_files != set(expected):
@@ -80,6 +82,27 @@ def main():
     if "tab:thresholdfull" in table or "Test F1-W & FAR & Recall" not in table:
         raise ValueError("Merged cutoff/F1/FAR/recall table is missing")
 
+    # Table 17: post-hoc cost-model diagnostic from the recorded benchmark timings.
+    raw_calls = pd.read_csv(ROOT / "results/benchmark_timing/raw_calls.csv")
+    if len(raw_calls) != 30800 or raw_calls.run_id.nunique() != 1:
+        raise ValueError("Expected the 30,800 recorded calls of one benchmark run")
+    weighting = pd.read_csv(ROOT / "results/cost_model_diagnostic/heldout_weighting_comparison.csv")
+    archived = pd.read_csv(ROOT / "results/benchmark_review/overhead_assessment.csv")
+    if len(weighting) != 12 or set(weighting.kind) != {"component", "whole_policy"}:
+        raise ValueError("Expected 4 component and 8 policy cost-model assessments")
+    merged = weighting.merge(archived, on=["kind", "model_key"])
+    if len(merged) != 12 or not np.allclose(merged.absolute_fit_mape, merged.mean_absolute_percentage_error, rtol=0, atol=1e-9):
+        raise ValueError("Absolute-fit column does not reproduce the archived assessment")
+    if ((merged.absolute_fit_mape <= 20) & (merged.absolute_fit_max_ape <= 50)).any():
+        raise ValueError("The pre-specified absolute fit should fail all 12 assessments")
+    if not weighting.relative_fit_adequate.all():
+        raise ValueError("Relative-error refit summary changed")
+    if not (round(weighting.relative_fit_mape.min(), 1) == 4.0 and round(weighting.relative_fit_mape.max(), 1) == 11.6):
+        raise ValueError("Relative-refit MAPE range differs from the manuscript (4.0-11.6%)")
+    table17 = (ROOT / "paper_assets/tables/cost_model_weighting.tex").read_text(encoding="utf-8")
+    if "tab:costdiag" not in table17 or table17.count(r"\\") < 13:
+        raise ValueError("Table 17 asset is missing or incomplete")
+
     report = {
         "status": "passed",
         "members_verified": len(expected),
@@ -87,6 +110,8 @@ def main():
         "random_split_policy_rows": len(random_policy),
         "class_weight_rows": len(class_weight),
         "bootstrap_rows": len(bootstrap),
+        "recorded_benchmark_calls": len(raw_calls),
+        "cost_model_assessments": {"absolute_fit_adequate": 0, "relative_refit_adequate": int(weighting.relative_fit_adequate.sum())},
         "anonymous_marker_scan": "passed",
     }
     print(json.dumps(report, indent=2))

@@ -1,0 +1,43 @@
+{
+  "status": "complete",
+  "created_utc": "2026-11-18T16:47:37.104105+00:00",
+  "benchmark_run_id": "20260827T122554_803811Z_edd09c6d",
+  "post_hoc": true,
+  "archived_assessment_reproduced": true,
+  "absolute_fit_adequate": 0,
+  "relative_fit_adequate": 12,
+  "relative_fit_assessments": 12,
+  "component_relative_mape_range": [
+    5.033611463978808,
+    10.495714676502297
+  ],
+  "policy_relative_mape_range": [
+    4.034228061381177,
+    11.635272652262774
+  ],
+  "component_in_sample_mape_absolute": {
+    "dt": 103.45656543338048,
+    "xgb300": 55.38391034859903,
+    "rf30": 52.926441912845505,
+    "rf300": 49.29700277843005
+  },
+  "component_in_sample_mape_relative": {
+    "dt": 10.480077562857971,
+    "xgb300": 5.789264391902374,
+    "rf30": 8.166533634633565,
+    "rf300": 8.014386474485642
+  },
+  "inputs": {
+    "generated/benchmarks/20260827T122554_803811Z_edd09c6d/raw_calls.csv": "a7b089bd0c8968559a56e5a5abe5c0cf4958e853b3a7d825a12e9bea268eedb6",
+    "generated/benchmark_review/overhead_assessment.csv": "e187b0fee5fe68ced0caed67c929b973d85ab6348c6b896b0c2d14b418bcf8dc",
+    "scripts/analyze_benchmark.py": "4b24449792af1545d2f117bd55d3a40f63c412d0c4a720f17f424170b974c8dd"
+  },
+  "script_sha256": "59c69feae77996060ca2cd640b1e8ce0a6ada25d2d451a43abe3f46d7abcb7cd",
+  "outputs": {
+    "generated/cost_model_diagnostic/component_fit_comparison.csv": "309a2794c817af102a7c0989eadc9623f6ca1d65b5e2e77a1ad7e87477b39faa",
+    "generated/cost_model_diagnostic/component_fit_comparison_by_seed.csv": "fe35c7b85adb41cbbcd92726ff94bdf10b59cead4c2538d67c053cded927241f",
+    "generated/cost_model_diagnostic/heldout_weighting_comparison.csv": "7613eacbdd2ed31c037ac02c6aa3bf60ab36e89d8a75e88167a3b2d268ca749d",
+    "generated/tables/cost_model_weighting.tex": "dffd552a46d5bb17ae8cecec1de5255ed7d5954fe700349e499245ce21d52311"
+  },
+  "compared_with_shipped_outputs": []
+}

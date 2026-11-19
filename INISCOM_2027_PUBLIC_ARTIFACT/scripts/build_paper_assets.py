@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import platform
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -80,8 +81,31 @@ def verify_analysis_manifest(path: Path) -> int:
     return len(checked)
 
 
+_TEXT_NEGATIVE = re.compile(r"(?<![\w\-.\\])(?<!\\ensuremath\{)-(\d[\d.,]*)")
+_MATH_DELIMITER = re.compile(r"(?<!\\)\$")
+
+
+def tex_minus(content: str) -> str:
+    """Typeset negative numbers in running text and table cells with a true minus.
+
+    ``number`` returns ASCII text so that JSON facts and tests stay plain. In
+    LaTeX, an ASCII hyphen outside math mode prints a short hyphen instead of a
+    minus sign. Numbers outside ``$...$`` are wrapped as ``\\ensuremath{-x}``,
+    which renders identically in text and math and is therefore also safe in
+    number macros that are later used inside math. Text inside math, such as
+    $[-1.418,0.460]$ or $10^{-15}$, is left unchanged, as are hyphenated words
+    (RF-30) and ranges (23.6--30.2, 2-16).
+    """
+    parts = _MATH_DELIMITER.split(content)
+    for index in range(0, len(parts), 2):
+        parts[index] = _TEXT_NEGATIVE.sub(r"\\ensuremath{-\1}", parts[index])
+    return "$".join(parts)
+
+
 def write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.suffix == ".tex":
+        content = tex_minus(content)
     path.write_text(content.rstrip() + "\n", encoding="utf-8")
     OUTPUTS.append(path)
 
@@ -215,6 +239,195 @@ def style() -> None:
         "savefig.facecolor": "white", "axes.unicode_minus": True,
     })
 
+
+
+# ---------------------------------------------------------------------------
+# Figure builders. They read only summary CSVs, so the camera-ready figures can
+# be redrawn without the archived score files (scripts/redraw_figures.py).
+# ---------------------------------------------------------------------------
+TEXT_DARK, TEXT_LIGHT = "#111820", "#ffffff"
+
+
+def text_color(rgba) -> str:
+    """Choose dark or white annotation text from the WCAG relative luminance."""
+    def channel(c: float) -> float:
+        return c / 12.92 if c <= .03928 else ((c + .055) / 1.055) ** 2.4
+    def luminance(rgb) -> float:
+        r, g, b = (channel(float(c)) for c in rgb[:3])
+        return .2126 * r + .7152 * g + .0722 * b
+    fill = luminance(rgba)
+    dark = luminance(matplotlib.colors.to_rgb(TEXT_DARK))
+    # WCAG contrast ratio (L1 + .05) / (L2 + .05) against each text colour.
+    return TEXT_LIGHT if 1.05 / (fill + .05) > (fill + .05) / (dark + .05) else TEXT_DARK
+
+
+def signed_label(value: float, decimals: int = 1) -> str:
+    """Signed cell label with a true minus sign (U+2212), not a hyphen."""
+    return f"{value:+.{decimals}f}".replace("-", "−")
+
+
+def bin_label(label: str) -> str:
+    """Display Stage-3 bins as 0, 1, 2–16, 17–64 or ≥65 (en dash, no hyphen)."""
+    label = str(label)
+    if label.endswith("+"):
+        return "≥" + label[:-1]
+    return label.replace("-", "–")
+
+
+def plot_pr_heatmap(pr: pd.DataFrame, path: Path) -> None:
+    style()
+    checkpoints = [80., 90., 95., 97., 99., 99.5]
+    matrix = np.array([[unique(pr, model_key=k, recall_pct=r).precision_pct_mean for r in checkpoints] for k in ORDER])
+    deficits = matrix.max(axis=0) - matrix
+    fig, ax = plt.subplots(figsize=(4.80, 3.35))
+    fig.subplots_adjust(left=.32, right=.985, top=.97, bottom=.30)
+    vmax = max(6., math.ceil(float(deficits.max())))
+    cmap = plt.get_cmap("YlOrRd")
+    norm = matplotlib.colors.Normalize(vmin=0, vmax=vmax)
+    mesh = ax.imshow(deficits, cmap=cmap, norm=norm, aspect="auto", interpolation="nearest")
+    ax.set_xticks(range(6), [f"{x:g}" for x in checkpoints])
+    ax.set_yticks(range(8), [PLOT[k] for k in ORDER])
+    ax.set_xlabel("Attack recall (%)")
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    for i in range(8):
+        for j in range(6):
+            ax.text(j, i, f"{matrix[i,j]:.1f}", ha="center", va="center", fontsize=8,
+                    color=text_color(cmap(norm(deficits[i, j]))),
+                    fontweight="bold" if deficits[i,j] < 1e-9 else "normal")
+    cax = fig.add_axes([.39, .11, .51, .035])
+    cbar = fig.colorbar(mesh, cax=cax, orientation="horizontal")
+    cbar.set_label("Deficit from column best (pp)", fontsize=8)
+    cbar.outline.set_visible(False)
+    cbar.set_ticks([0, vmax / 2, vmax])
+    cbar.ax.tick_params(length=2, labelsize=7.5)
+    save_figure(fig, path)
+
+
+def plot_quality_cost(policy: pd.DataFrame, default_cost: pd.DataFrame, path: Path) -> None:
+    # Compact quality--cost view. A heatmap avoids the large empty regions and
+    # overlapping two-dimensional error bars of the former log-scale scatter.
+    # Each configuration has one measured/native-policy reference time, so time
+    # is shown once rather than repeated for all three cutoff-only decisions.
+    style()
+    f1_mean = np.array([[unique(policy, model_key=k, policy=p).test_F1_weighted_pct_mean
+                         for p in POLICIES] for k in ORDER])
+    f1_sd = np.array([[unique(policy, model_key=k, policy=p).test_F1_weighted_pct_sd
+                       for p in POLICIES] for k in ORDER])
+    time_mean = np.array([[unique(default_cost, model_key=k).reference_seconds] for k in ORDER])
+    time_sd = np.array([[unique(default_cost, model_key=k).reference_seconds_sd] for k in ORDER])
+    fig, (quality_ax, time_ax) = plt.subplots(
+        1, 2, figsize=(4.80, 2.72), sharey=True,
+        gridspec_kw={"width_ratios": (3.25, 1.15)},
+    )
+    # Generous bottom/top margins keep the two-line column labels and titles
+    # inside the canvas (reviewer R2.7: clipped labels).
+    fig.subplots_adjust(left=.30, right=.99, top=.885, bottom=.135, wspace=.06)
+    # Very light palettes keep every cell well above WCAG AA contrast with dark
+    # text; text colour is still chosen per cell from the rendered fill.
+    quality_colors = plt.get_cmap("YlGnBu")(np.linspace(.05, .70, 256))
+    time_colors = plt.get_cmap("cividis")(np.linspace(.20, .95, 256))
+    quality_colors[:, :3] = .40 * quality_colors[:, :3] + .60
+    time_colors[:, :3] = .35 * time_colors[:, :3] + .65
+    quality_cmap = matplotlib.colors.LinearSegmentedColormap.from_list("YlGnBu_light", quality_colors)
+    time_cmap = matplotlib.colors.LinearSegmentedColormap.from_list("cividis_light", time_colors)
+    quality_norm = matplotlib.colors.Normalize(vmin=82.5, vmax=91.0)
+    time_norm = matplotlib.colors.LogNorm(vmin=.008, vmax=1.0)
+    quality_ax.imshow(f1_mean, cmap=quality_cmap, norm=quality_norm, aspect="auto", interpolation="nearest")
+    time_ax.imshow(time_mean, cmap=time_cmap, norm=time_norm, aspect="auto", interpolation="nearest")
+    quality_ax.set_xticks(range(3), ["Fixed\n0.5", "Global\nval-F1", "Oracle\nprior"])
+    quality_ax.set_yticks(range(len(ORDER)), [PLOT[k] for k in ORDER])
+    quality_ax.set_title("Test F1-W (%), mean ± SD", pad=6, fontsize=8.2, fontweight="bold")
+    time_ax.set_xticks([0], ["Native\npolicy"])
+    time_ax.set_title("Time (s)", pad=6, fontsize=8.2, fontweight="bold")
+    quality_best = f1_mean.max(axis=0)
+    for i in range(len(ORDER)):
+        for j in range(len(POLICIES)):
+            value = f1_mean[i, j]
+            quality_ax.text(
+                j, i, f"{value:.2f} ± {f1_sd[i, j]:.2f}",
+                ha="center", va="center", fontsize=6.9,
+                color=text_color(quality_cmap(quality_norm(value))),
+                fontweight="bold" if np.isclose(value, quality_best[j]) else "normal",
+            )
+        mean, sd = time_mean[i, 0], time_sd[i, 0]
+        decimals = 4 if mean < .1 else 3
+        time_ax.text(
+            0, i, f"{mean:.{decimals}f}\n±{sd:.{decimals}f}",
+            ha="center", va="center", fontsize=6.2, linespacing=.95,
+            color=text_color(time_cmap(time_norm(mean))),
+            fontweight="bold" if np.isclose(mean, time_mean.min()) else "normal",
+        )
+    for plot_ax in (quality_ax, time_ax):
+        plot_ax.tick_params(length=0, pad=3, labelsize=7.4)
+        plot_ax.grid(False)
+        for spine in plot_ax.spines.values():
+            spine.set_visible(False)
+        plot_ax.set_xticks(np.arange(-.5, plot_ax.images[0].get_array().shape[1], 1), minor=True)
+        plot_ax.set_yticks(np.arange(-.5, len(ORDER), 1), minor=True)
+        plot_ax.grid(which="minor", color="white", linewidth=1.0)
+        plot_ax.tick_params(which="minor", length=0)
+    quality_ax.tick_params(axis="y", labelsize=7.3)
+    time_ax.tick_params(axis="y", labelleft=False)
+    save_figure(fig, path)
+
+
+def plot_cost_residual(residual_sizes: pd.DataFrame, path: Path) -> None:
+    # Signed errors preserve direction; no cost parameters are fitted here.
+    style()
+    residual_matrix = np.array([[unique(residual_sizes, kind=kind, model_key=k, input_n=n).signed_error_pct_mean
+                                 for n in (32, 1000)]
+                                for kind, keys in (("component", ORDER[:4]), ("whole_policy", ORDER)) for k in keys])
+    labels = ["Score: " + PLOT[k] for k in ORDER[:4]] + ["Policy: " + PLOT[k] for k in ORDER]
+    fig, ax = plt.subplots(figsize=(4.80, 3.7))
+    fig.subplots_adjust(left=.49, right=.83, top=.97, bottom=.19)
+    vmax = math.ceil(float(np.max(np.abs(residual_matrix))) / 10) * 10
+    cmap = plt.get_cmap("RdBu_r")
+    norm = matplotlib.colors.Normalize(vmin=-vmax, vmax=vmax)
+    mesh = ax.imshow(residual_matrix, cmap=cmap, norm=norm, aspect="auto")
+    ax.set_xticks([0, 1], ["32", "1,000"])
+    ax.set_yticks(range(len(labels)), labels, fontsize=7.7)
+    ax.set_xlabel("Held-out input batch size")
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    for i in range(len(labels)):
+        for j in range(2):
+            value = residual_matrix[i, j]
+            ax.text(j, i, signed_label(value), ha="center", va="center", fontsize=8,
+                    color=text_color(cmap(norm(value))))
+    cax = fig.add_axes([.87, .25, .02, .6])
+    bar = fig.colorbar(mesh, cax=cax)
+    bar.set_ticks([-vmax, 0, vmax], labels=[signed_label(-vmax, 0), "0", signed_label(vmax, 0)])
+    bar.outline.set_visible(False)
+    fig.text(.72, .04, "Signed error (%)", ha="center", fontsize=8)
+    save_figure(fig, path)
+
+
+def plot_drr_residual(residual_bins: pd.DataFrame, path: Path) -> None:
+    style()
+    fig, axes = plt.subplots(1, 2, figsize=(4.80, 2.8), sharey=True)
+    fig.subplots_adjust(left=.14, right=.98, top=.82, bottom=.25, wspace=.15)
+    for size, ax in zip((32, 1000), axes):
+        selected = residual_bins[residual_bins.input_n == size]
+        summary = selected.groupby("stage3_bin").agg(error=("signed_error_pct", "mean"),
+                                                     seeds=("seed", "nunique"), calls=("n_calls", "sum"))
+        order = sorted(summary.index, key=lambda label: int(str(label).split("-")[0].rstrip("+")))
+        vals = summary.loc[order, "error"].to_numpy()
+        ax.bar(range(len(order)), vals, width=.65, color="#367d9b")
+        ax.axhline(0, color="#777777", lw=.7)
+        ax.set_xticks(range(len(order)), [bin_label(label) for label in order])
+        ax.set_title(f"Input batch {size:,}", loc="left", fontweight="bold")
+        ax.set_xlabel("Actual Stage-3 rows / call")
+        for i, label in enumerate(order):
+            s = summary.loc[label]
+            ax.text(i, vals[i] + 3, f"{int(s.seeds)}s/{int(s.calls)}c", ha="center", fontsize=6.6)
+    maximum = max(float(a.get_ylim()[1]) for a in axes)
+    axes[0].set_ylim(min(0, axes[0].get_ylim()[0]), maximum + 18)
+    axes[0].set_ylabel("Whole-call signed error (%)")
+    fig.text(.56, .96, "DRR: positive = cost overprediction", ha="center", fontsize=8)
+    save_figure(fig, path)
 
 def reviewed_benchmark(root: Path):
     """Use only the explicitly reviewed full run; no archived-timing fallback."""
@@ -793,32 +1006,7 @@ def main() -> None:
                number(unique(cic, model_key=k).predict_seconds_mean, 4)) for k in ORDER], placement="ht")
 
     style()
-    pr = read_csv(statsdir / "pr_checkpoints_summary.csv")
-    checkpoints = [80., 90., 95., 97., 99., 99.5]
-    matrix = np.array([[unique(pr, model_key=k, recall_pct=r).precision_pct_mean for r in checkpoints] for k in ORDER])
-    deficits = matrix.max(axis=0) - matrix
-    fig, ax = plt.subplots(figsize=(4.80, 3.25))
-    fig.subplots_adjust(left=.32, right=.985, top=.95, bottom=.30)
-    vmax = max(6., math.ceil(float(deficits.max())))
-    mesh = ax.imshow(deficits, cmap="YlOrRd", vmin=0, vmax=vmax, aspect="auto", interpolation="nearest")
-    ax.set_xticks(range(6), [f"{x:g}" for x in checkpoints])
-    ax.set_yticks(range(8), [PLOT[k] for k in ORDER])
-    ax.set_xlabel("Attack recall (%)")
-    ax.tick_params(length=0)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    for i in range(8):
-        for j in range(6):
-            ax.text(j, i, f"{matrix[i,j]:.1f}", ha="center", va="center", fontsize=8,
-                    color="white" if deficits[i,j] > .62 * vmax else "#17202a",
-                    fontweight="bold" if deficits[i,j] < 1e-9 else "normal")
-    cax = fig.add_axes([.39, .12, .51, .035])
-    cbar = fig.colorbar(mesh, cax=cax, orientation="horizontal")
-    cbar.set_label("Deficit from column best (pp)", fontsize=8)
-    cbar.outline.set_visible(False)
-    cbar.set_ticks([0, vmax / 2, vmax])
-    cbar.ax.tick_params(length=2, labelsize=7.5)
-    save_figure(fig, figures / "pr_checkpoint_heatmap.pdf")
+    plot_pr_heatmap(read_csv(statsdir / "pr_checkpoints_summary.csv"), figures / "pr_checkpoint_heatmap.pdf")
 
     ecdf = read_csv(scoredir / "class_conditional_ecdf.csv")
     if ecdf.score.nunique() < 1001:
@@ -858,73 +1046,7 @@ def main() -> None:
     fig.legend(handles=legend, loc="upper center", ncol=4, frameon=False, bbox_to_anchor=(.54, .99), columnspacing=1)
     save_figure(fig, figures / "conditional_score_shift.pdf")
 
-    # Compact quality--cost view. A heatmap avoids the large empty regions and
-    # overlapping two-dimensional error bars of the former log-scale scatter.
-    # Each configuration has one measured/native-policy reference time, so time
-    # is shown once rather than repeated for all three cutoff-only decisions.
-    f1_mean = np.array([[unique(policy, model_key=k, policy=p).test_F1_weighted_pct_mean
-                         for p in POLICIES] for k in ORDER])
-    f1_sd = np.array([[unique(policy, model_key=k, policy=p).test_F1_weighted_pct_sd
-                       for p in POLICIES] for k in ORDER])
-    time_mean = np.array([[unique(default_cost, model_key=k).reference_seconds] for k in ORDER])
-    time_sd = np.array([[unique(default_cost, model_key=k).reference_seconds_sd] for k in ORDER])
-    fig, (quality_ax, time_ax) = plt.subplots(
-        1, 2, figsize=(4.80, 2.55), sharey=True,
-        gridspec_kw={"width_ratios": (3.25, 1.15)},
-    )
-    fig.subplots_adjust(left=.335, right=.985, top=.78, bottom=.10, wspace=.07)
-    # Keep the palettes light and cell text dark. Some anonymous-review PDF
-    # previews omit embedded raster fills; dark text preserves the numerical
-    # comparison even when the heatmap color layer is unavailable.
-    quality_colors = plt.get_cmap("YlGnBu")(np.linspace(.05, .78, 256))
-    time_colors = plt.get_cmap("cividis")(np.linspace(.05, .90, 256))
-    quality_colors[:, :3] = .48 * quality_colors[:, :3] + .52
-    time_colors[:, :3] = .42 * time_colors[:, :3] + .58
-    quality_cmap = matplotlib.colors.LinearSegmentedColormap.from_list(
-        "YlGnBu_light", quality_colors,
-    )
-    time_cmap = matplotlib.colors.LinearSegmentedColormap.from_list(
-        "cividis_light", time_colors,
-    )
-    quality_ax.imshow(
-        f1_mean, cmap=quality_cmap, vmin=82.5, vmax=91.0,
-        aspect="auto", interpolation="nearest",
-    )
-    time_ax.imshow(
-        time_mean, cmap=time_cmap, norm=matplotlib.colors.LogNorm(vmin=.008, vmax=1.0),
-        aspect="auto", interpolation="nearest",
-    )
-    quality_ax.set_xticks(range(3), ["0.5", "Global\nval-F1", "Oracle\nprior"])
-    quality_ax.set_yticks(range(len(ORDER)), [PLOT[k] for k in ORDER])
-    quality_ax.set_title("Test F1-W (%)\nmean ± SD", pad=5, fontsize=8.2, fontweight="bold")
-    time_ax.set_xticks([0], ["Reference"])
-    time_ax.set_title("Time (s)\nmean ± SD", pad=5, fontsize=8.2, fontweight="bold")
-    quality_best = f1_mean.max(axis=0)
-    for i in range(len(ORDER)):
-        for j in range(len(POLICIES)):
-            value = f1_mean[i, j]
-            quality_ax.text(
-                j, i, f"{value:.2f}\n±{f1_sd[i, j]:.2f}",
-                ha="center", va="center", fontsize=5.9,
-                color="#111820",
-                fontweight="bold" if np.isclose(value, quality_best[j]) else "normal",
-            )
-        mean, sd = time_mean[i, 0], time_sd[i, 0]
-        decimals = 4 if mean < .1 else 3
-        time_ax.text(
-            0, i, f"{mean:.{decimals}f}\n±{sd:.{decimals}f}",
-            ha="center", va="center", fontsize=5.8,
-            color="#111820",
-            fontweight="bold" if np.isclose(mean, time_mean.min()) else "normal",
-        )
-    for plot_ax in (quality_ax, time_ax):
-        plot_ax.tick_params(length=0, pad=3)
-        plot_ax.grid(False)
-        for spine in plot_ax.spines.values():
-            spine.set_visible(False)
-    quality_ax.tick_params(axis="y", labelsize=7.1)
-    time_ax.tick_params(axis="y", labelleft=False)
-    save_figure(fig, figures / "quality_cost_policies.pdf")
+    plot_quality_cost(policy, default_cost, figures / "quality_cost_policies.pdf")
 
     fig, axes = plt.subplots(1, 2, figsize=(4.80, 2.50), sharey=True)
     fig.subplots_adjust(left=.12, right=.98, top=.80, bottom=.20, wspace=.18)
@@ -943,54 +1065,9 @@ def main() -> None:
     fig.legend(*axes[0].get_legend_handles_labels(), loc="upper center", ncol=2, frameon=False)
     save_figure(fig, figures / "rf_threshold_sensitivity.pdf")
 
-    # Signed errors preserve direction; no cost parameters are fitted here.
-    residual_matrix = np.array([[unique(residual_sizes, kind=kind, model_key=k, input_n=n).signed_error_pct_mean
-                                 for n in (32, 1000)]
-                                for kind, keys in (("component", ORDER[:4]), ("whole_policy", ORDER)) for k in keys])
-    labels = ["Score: " + PLOT[k] for k in ORDER[:4]] + ["Policy: " + PLOT[k] for k in ORDER]
-    fig, ax = plt.subplots(figsize=(4.80, 3.7))
-    fig.subplots_adjust(left=.49, right=.83, top=.96, bottom=.19)
-    vmax = math.ceil(float(np.max(np.abs(residual_matrix))) / 10) * 10
-    mesh = ax.imshow(residual_matrix, cmap="RdBu_r", vmin=-vmax, vmax=vmax, aspect="auto")
-    ax.set_xticks([0, 1], ["32", "1,000"])
-    ax.set_yticks(range(len(labels)), labels, fontsize=7.7)
-    ax.set_xlabel("Held-out input batch size")
-    ax.tick_params(length=0)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    for i in range(len(labels)):
-        for j in range(2):
-            value = residual_matrix[i, j]
-            ax.text(j, i, f"{value:+.1f}", ha="center", va="center", fontsize=8,
-                    color="white" if abs(value) > .62*vmax else "#17202a")
-    cax = fig.add_axes([.87, .25, .02, .6])
-    bar = fig.colorbar(mesh, cax=cax)
-    bar.set_ticks([-vmax, 0, vmax])
-    bar.outline.set_visible(False)
-    fig.text(.72, .04, "Signed error (%)", ha="center", fontsize=8)
-    save_figure(fig, figures / "cost_residual_by_size.pdf")
+    plot_cost_residual(residual_sizes, figures / "cost_residual_by_size.pdf")
 
-    fig, axes = plt.subplots(1, 2, figsize=(4.80, 2.8), sharey=True)
-    fig.subplots_adjust(left=.14, right=.98, top=.82, bottom=.25, wspace=.15)
-    for size, ax in zip((32, 1000), axes):
-        selected = residual_bins[residual_bins.input_n == size]
-        summary = selected.groupby("stage3_bin").agg(error=("signed_error_pct", "mean"),
-                                                     seeds=("seed", "nunique"), calls=("n_calls", "sum"))
-        order = sorted(summary.index, key=lambda label: int(label.split("-")[0].rstrip("+")))
-        vals = summary.loc[order, "error"].to_numpy()
-        ax.bar(range(len(order)), vals, width=.65, color="#367d9b")
-        ax.axhline(0, color="#777777", lw=.7)
-        ax.set_xticks(range(len(order)), order, rotation=30, ha="right")
-        ax.set_title(f"Input batch {size:,}", loc="left", fontweight="bold")
-        ax.set_xlabel("Actual Stage-3 rows / call")
-        for i, label in enumerate(order):
-            s = summary.loc[label]
-            ax.text(i, vals[i] + 3, f"{int(s.seeds)}s/{int(s.calls)}c", ha="center", fontsize=6.6)
-    maximum = max(float(a.get_ylim()[1]) for a in axes)
-    axes[0].set_ylim(min(0, axes[0].get_ylim()[0]), maximum + 18)
-    axes[0].set_ylabel("Whole-call signed error (%)")
-    fig.text(.56, .96, "DRR: positive = cost overprediction", ha="center", fontsize=8)
-    save_figure(fig, figures / "drr_residual_by_stage3.pdf")
+    plot_drr_residual(residual_bins, figures / "drr_residual_by_stage3.pdf")
 
     # This small record maps visible values to machine-readable facts and units.
     facts = {
